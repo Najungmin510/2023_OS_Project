@@ -21,9 +21,7 @@ GUI를 구현하기 위해 Easywin32 라이브러리를 사용
 함수 형식에 따라야 하기 때문에, 그에 맞춰서 구현함
 */
 
-//컨트롤 조작 시 OnCommand 함수 호출 및 종료될 시 Destory함수 호출, 각 함수는 매크로
-//Destory 같은 경우 동적 할당 된 메모리들을 정리할 수 있는 시간을 주는 역할을 함
-CMD_USER_MESSAGE(OnCommand, DestoryUserData, NULL) //사용자 정의 메세지 사용
+struct UserData;
 
 typedef struct RegisteredUserData { // 서버에 접속하는 사용자를 "관리"하기 위한 구조체, 유저 한명당 하나씩 생성
 	char id[32]; // 사용자 id
@@ -99,35 +97,112 @@ void OnCloseUser(UserData* ap_user_data, void* ap_server, int a_error_flag, int 
 }
 
 
+// 이미 다른 사용자가 사용하고 있는 아이디인지 확인하는 기능
+RUD* FindUserID(AppData* ap_data, const char* ap_user_id) {
+	RUD* p_user_info;
+	int count = ListBox_GetCount(ap_data->p_user_list); //리스트 박스에 있는 항목의 수만큼 돌면 되니까 이거 개수 가져오고
+
+	for (int i = 0; i < count; i++) {
+		p_user_info = (RUD*)ListBox_GetItemDataPtr(ap_data->p_user_list, i); //i번째 항목에 저장된 사용자 주소 가져오기 
+
+		if (!strcmp(p_user_info->id, ap_user_id)) { //만약 존재하는 아이디라면
+			return p_user_info; // strcmp 같으면 0을 반환하기에 현재 사용자의 주소를 반환 (존재함을 알려주는 역할)
+		}
+	}
+	return NULL; //만약 없는 아이디라면 null 리턴
+}
+
+// Edit 컨트롤에 입력된 문자열 사용자 지정 메모리에 복사하는 기능
+void CopyControlDataToMemory(int a_ctrl_id, char* ap_memory, int a_mem_size) {
+	void* p_edit = FindControl(a_ctrl_id); //edit 컨트롤 주소 가져온다음에
+	GetCtrlName(p_edit, ap_memory, a_mem_size); //거기에 있는 text를 메모리에 복사
+	SetCtrlName(p_edit, ""); //복사 후, eidt 컨트롤에 남아있는 텍스트 삭제
+}
+
+// 사용자가 입력한 데이터를 가져와 저장하는 기능
 void RegisteringUserData() {
 
-	AppData* p_data = (AppData*)GetAppData();
+	AppData* p_data = (AppData *)GetAppData(); //이 프로그램의 내부 데이터 주소를 가져오기
 	char str[32];
-	void* p_edit = FindControl(ID_EDIT_ID);
+	void* p_edit = FindControl(ID_EDIT_ID); //아이디를 입력받은 edit 컨트롤 주소 가져오기 
 
-	GetCtrlName(p_edit, str, 32);
+	GetCtrlName(p_edit, str, 32); // str 변수에 이를 복사하기
 
-	int id_len = strlen(str) + 1;
-	if (id_len > 5) {
-		if (NULL == FindUserID(p_data, str)) {
-			SetCtrlName(p_edit, "");
+	int id_len = strlen(str) + 1; //입력된 아이디 길이를 구할건데
 
-			RUD* p_temp_user = (RUD*)malloc(sizeof(RUD));
+	if (id_len > 5) { //5자 이상이라면
+		if (NULL == FindUserID(p_data, str)) { //이미 사용되고 있는 아이디가 있는지 조회, 없다면(Null이 반환되었다면)
+			SetCtrlName(p_edit, ""); // 아이디 사용가능, 저장 후 edit 컨트롤에 있는 문자열 부분 지워주기
 
-			if (p_temp_user != NULL) {
-				memcpy(p_temp_user->id, str, id_len);
-				CopyControlDataToMemory(ID_EDIT_PASSWORD, p_temp_user->pw, 32);
-				CopyControlDataToMemory(ID_EDIT_NICKNAME, p_temp_user->pw, 32);
+			RUD* p_temp_user = (RUD*)malloc(sizeof(RUD)); //사용자 정보를 저장할 메모리 , 동적 메모리 할당
+			if (p_temp_user != NULL) { //만약 할당 되었다면,
+				memcpy(p_temp_user->id, str, id_len); //메모리 복사해서 사용자가 입력한 값을 넣어주기
+				CopyControlDataToMemory(ID_EDIT_PASSWORD, p_temp_user -> pw, 32); //비밀번호
+				CopyControlDataToMemory(ID_EDIT_NICKNAME, p_temp_user -> nickname, 32); //닉네임 가져와서 복사
+
+				p_temp_user -> level = ComboBox_GetCurSel(FindControl(ID_CB_LEVEL)); //콤보박스의 현재 위치(인덱스)가져와서 저장해주면 됨, 배열로 만들어 뒀으니까
+				p_temp_user -> p_socket = NULL; //사용자 접속 정보를 초기화
+
+				int index = ListBox_AddString(p_data -> p_user_list, p_temp_user -> id, 0); //사용자 목록 리스트박스에 저장, 아이디만 추가해주기
+				ListBox_SetItemDataPtr(p_data -> p_user_list, index, p_temp_user); //현재 추가된 위치에 사용자의 새 정보를 p_temp_user에 복사
+				//즉, 메모리 남은 부분에 사용자에게 입력받은 데이터 저장해두겠다는 것
+				ListBox_SetCurSel(p_data -> p_user_list, index); //추가된 항목을 바로 볼 수 있도록 해당 박스 커서 설정
 			}
 		}
+		else { //이미 사용하고 있는 아이디가 있다면, 관련 안내 메세지 출력
+			ListBox_InsertString(p_data -> p_chat_list, -1, "[등록 오류] : 이미 사용중인 아이디입니다.");
+		}
+	}
+	else { //5글자 이하라면, 관련 안내 메세지 출력
+		ListBox_InsertString(p_data->p_chat_list, -1, "[등록 오류] : 아이디를 5글자 이상 입력해주세요.");
 	}
 }
 
-void OnCommand(INT32 a_ctrl_id, INT32 a_notity_code, void* ap_ctrl) {
+void OnCommand(INT32 a_ctrl_id, INT32 a_notity_code, void* ap_ctrl) { //사용자가 버튼을 클릭하였을 때 행동 정의
 	if (a_ctrl_id == ID_BTN_ADD) { //추가 버튼 클릭시
 		RegisteringUserData();
 	}
 }
+
+//사용자 목록에 등록된 정보를 기억하는 기능 , DB역할이라고 보면 된다.
+void SaveUserData(const char* ap_file_name) {
+	FILE* p_file = NULL;
+
+	if (0 == fopen_s(&p_file, ap_file_name, "wb") && p_file != NULL) {
+		void* p_ctrl = FindControl(ID_LB_USER);
+		int count = ListBox_GetCount(p_ctrl); //리스트 박스에 추가되어 있는 항목 개수 가져오고 이게 유저수와 동일하므로
+		fwrite(&count, sizeof(int), 1, p_file); //유저수를 파일에 저장, 나중에 읽기에 좀 더 편하려고 저장한거
+
+		for (int i = 0; i < count; i++) { //그래서그 수만큼 읽어오면 됨
+			fwrite(ListBox_GetItemDataPtr(p_ctrl, i), sizeof(RUD), 1, p_file);
+			/*리스트 박스에 사용자 관련 메모리를 저장해 두었기 때문에 거기에 있는 데이터 가져와서
+			파일에 저장*/
+		}
+		fclose(p_file); //파일닫기
+	}
+}
+
+void DestoryUserData() { //프로그램 종료시, 사용자 할당 메모리 자동 해제 하도록 하는 기능
+
+	//근데, 회원가입을 한 사용자의 정보가 영원히 사라지면 안되기에, 이를 따로 저장하는 기능을 추가해야함
+	SaveUserData("user_list.dat");
+	//사용자 목록에 등록된 정보 파일로 저장해서 관리
+	//이 파일은 overwrite됨 , 그냥 지우고 다시 저장하는 방식
+
+	void* p_data, * p_ctrl = FindControl(ID_LB_USER); //사용자 목록 리스트 박스 가져오기
+	int count = ListBox_GetCount(p_ctrl); //리스트 박스에 있는 항목 개수 가져오고
+
+	for (int i = 0; i < count; i++) { //그 항목 개수만큼 돌면서
+		p_data = ListBox_GetItemDataPtr(p_ctrl, i); //i번째 항목에 저장된 주소 가져오기
+		free(p_data); //p_data가 가리키는 메모리 할당 해제
+	}
+	ListBox_ResetContent(p_ctrl); //리스트 박스의 모든 항목 제거
+}
+
+
+//컨트롤 조작 시 OnCommand 함수 호출 및 종료될 시 Destory함수 호출, 각 함수는 매크로
+//Destory 같은 경우 동적 할당 된 메모리들을 정리할 수 있는 시간을 주는 역할을 함
+CMD_USER_MESSAGE(OnCommand, DestoryUserData, NULL) //사용자 정의 메세지 사용
 
 
 //콤보 상자 항목 재정의
@@ -157,7 +232,28 @@ void DrawUserDataItem(int index, char* ap_str, int a_str_len, void* ap_data, int
 
 // 시스템에 등록된 사용자 정보를 파일에서 읽어 리스트 박스에 추가하는 함수
 void LoadUserData(AppData* ap_data, const char* ap_file_name) {
+	FILE* p_file = NULL;
 
+	if (0 == fopen_s(&p_file, ap_file_name, "rb") && p_file != NULL) {
+		int count = 0, index;
+		fread(&count, sizeof(int), 1, p_file); //파일에 저장되어 있는 사용자수 읽기
+		RUD* p_user_info;
+
+		for (int i = 0; i < count; i++) {
+			p_user_info = (RUD*)malloc(sizeof(RUD));//사용자 정보를 저장할 메모리 할당
+
+			if (p_user_info != NULL) { //사용자 전부 입력될 때 까지
+				fread(p_user_info, sizeof(RUD), 1, p_file); //1명의 사용자 정보를 읽어들이기
+				p_user_info->p_socket = NULL; //socket 쓰레기값 있을수도 있기에 NULL로 초기화
+
+				index = ListBox_AddString(ap_data -> p_user_list, p_user_info->id, 0); //사용자 ID로 정렬될 수 있도록 하기위해서 추가
+				//정렬은 AddString에 있는 기본기능임
+
+				ListBox_SetItemDataPtr(ap_data -> p_user_list, index, p_user_info); // 새로 추가된 항목에 사용자 정보 & 주소 함께 저장
+			}
+		}
+		fclose(p_file);
+	}
 }
 
 void CreateUI(AppData *ap_data) {
@@ -171,20 +267,20 @@ void CreateUI(AppData *ap_data) {
 		ID_LB_USER, DrawUserDataItem); //사용자가 리스트 박스를 재정의 할 수 있게하기 위해서 선언
 
 	CreateButton("추가", 207, 430, 70, 28, ID_BTN_ADD); // 각 기능을 하는 버튼들 생성
-	CreateButton("변경", 207, 430, 70, 28, ID_BTN_MODIFY);
-	CreateButton("삭제", 207, 430, 70, 28, ID_BTN_DEL);
+	CreateButton("변경", 280, 430, 70, 28, ID_BTN_MODIFY);
+	CreateButton("삭제", 353, 430, 70, 28, ID_BTN_DEL);
 
 	/* 사용자 정보 출력*/
 	TextOut(15, 476, RGB(255, 255, 255), "아이디 : ");
 	CreateEdit(65, 470, 100, 24, ID_EDIT_ID, 0);
 
 	TextOut(180, 476, RGB(255, 255, 255), "암호 : ");
-	CreateEdit(65, 470, 100, 24, ID_EDIT_PASSWORD, 0);
+	CreateEdit(218, 470, 100, 24, ID_EDIT_PASSWORD, 0);
 
 	TextOut(333, 476, RGB(255, 255, 255), "닉네임 : ");
-	CreateEdit(65, 470, 100, 24, ID_EDIT_NICKNAME, 0);
+	CreateEdit(371, 470, 100, 24, ID_EDIT_NICKNAME, 0);
 
-	TextOut(15, 476, RGB(255, 255, 255), "등급 : ");
+	TextOut(486, 476, RGB(255, 255, 255), "등급 : ");
 	void* p = CreateComboBox(524, 470, 76, 186, ID_CB_LEVEL);
 	for (int i = 0; i < 5; i++) {
 		ComboBox_InsertString(p, i, gp_user_level_str[i], 0); //5개 문자열 넣어주고
@@ -194,12 +290,12 @@ void CreateUI(AppData *ap_data) {
 
 int main()
 {
-	ChangeWorkSize(490, 650); //작업화면 크기 설정 
+	ChangeWorkSize(620, 650); //작업화면 크기 설정 
 	Clear(0, RGB(41, 22, 77)); //서버 메인 화면 설정 
 	SelectFontObject("굴림", 15);
-	TextOut(10, 5, RGB(151, 125, 255), "채팅목록");
+	//TextOut(10, 5, RGB(151, 125, 255), "채팅목록"); //제목 설정
 
-	/*여기서부터 socket*/
+	/*여기서부터 socket code*/
 
 	StartSocketSystem(); //Socket 사용
 
@@ -210,6 +306,7 @@ int main()
 
 	CreateUI(&data); //관련 컨트롤 생성
 	SetAppData(&data, sizeof(AppData)); //지정한 변수를 내부 데이터로 저장
+	LoadUserData(&data, "user_list.dat"); //저장되어 있던 사용자 목록 가져오기
 
 	StartListenService(data.p_server, "127.0.0.1", 25001); //25001포트를 이용해 서버를 실행시키기
 
