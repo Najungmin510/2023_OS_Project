@@ -14,6 +14,7 @@
 #define ID_EDIT_NICKNAME 1022 //닉네임 입력받은 text id
 
 #define ID_CB_LEVEL 1030 //등급 입력용 콤보 박스
+#define MAX_JOIN_USER 10 //최대 동시접속가능수
 
 /*
 GUI를 구현하기 위해 Easywin32 라이브러리를 사용
@@ -36,6 +37,7 @@ struct AppData { //서버에서 사용할 내부 데이터
 	void* p_user_list; //사용자 목록 리스트 박스의 주소
 	void* p_chat_list; //채팅 목록 리스트 박스의 주소 
 	void* p_server; //서버 소켓 객체의 주소
+	int user_Count; //서버 접속자 수 저장할 변수
 };
 
 
@@ -48,22 +50,83 @@ struct UserData { //서버에 접속하는 유저의 객체 생성해서 저장�
 //유저 등급, 바뀌질 않을 데이터라 걍 전역변수로 
 const char* gp_user_level_str[5] = { "초보자", "숙련자", "고수", "달인", "관리자" };
 
+/*----------------------------------------------------------------------*/
+
+
 /* 1. 새로운 사용자 접속 시 서버에서 처리할 것들 */
 /* a_server_index의 경우 다중 서버 구현 시, 어떤 서버로 데이터를 보낼것인지를 지정할 때 사용 */
 void OnNewUser(UserData* ap_user_data, void *ap_server, int a_server_index) { //EasyWin32에서 socket사용할 때 필요한 함수형식
-
+	
 	char temp_str[64];
 	sprintf_s(temp_str, 64, "환영합니다! %s 님이 접속하셨습니다.", ap_user_data->ip_Address);
 	ListBox_InsertString(FindControl(ID_LB_CHAT), -1, temp_str);
+
 	//메인에서 만든 UserBoard를 가져오고, 새로운사용자가 접속하면 그걸 배열의 맨 뒤에다가 추가
-	//위의 환영합니다 문구를 추가하는거, 그리고 새로운 사용자가 들어올 때 마다 이를 출력한다.
+	//위의 환영합니다 문구를 추가하는거, 그리고 새로운 사용자가 들어올 때 마다 이를 출력한다.	
+	
 }
 
-// 2. 클라이언트로 메세지를 보낼 때 처리할 것들
+//게임에 참여하고 있는 플레이어 수 계산
+int CalcPlayerCount() {
+
+	AppData* ap_app_data = (AppData*)GetAppData();
+	int before_join = ap_app_data->user_Count; // 기존 유저 수 확인
+
+	ap_app_data->user_Count = 0;//플레이어 수 초기화
+
+	UserData* p = (UserData*)GetUsersData(ap_app_data->p_server), * p_limit = p + MAX_JOIN_USER;
+
+	while (p < p_limit) {
+		if (p->h_socket != 0xFFFFFFFF) { //접속된 사용자라면
+			ap_app_data->user_Count++;
+		}
+		p++;
+	}
+
+	if (ap_app_data->user_Count >= 2) { //만약, 접속된 사용자수가 2명이상이라면 게임시작가능
+		ListBox_InsertString(ap_app_data->p_chat_list, -1, "[알림] : 2명 이상의 사용자가 참가하여, 그림퀴즈 게임 이용이 가능합니다!");
+		return 1; // 1 == 게임시작가능
+	}
+	else {
+		ListBox_InsertString(ap_app_data->p_chat_list, -1, "[알림] : 2명 미만의 사용자가 참가하여, 그림퀴즈 게임 이용이 불가능합니다!");
+		return -1; // -1 == 게임시작불가
+	}
+}
+
+void PlayDrawQuizGame() { //그림퀴즈,  //사용자 & 단어 랜덤으로 지명해서 클라이언트로 보내기
+
+	AppData* p_app_data = (AppData*)GetAppData();
+	int Random_Myturn = p_app_data->user_Count; //접속인원 수 구하기
+
+	int who = rand() % (Random_Myturn - 0 + 1) + 0; //접속인원 중 무작위로 뽑는 난수
+	int i = 0; // 내가 찾는 유저가 맞는지 카운트할 변수
+
+	UserData* p = (UserData*)GetUsersData(p_app_data->p_server), * p_limit = p + MAX_JOIN_USER;
+
+	//랜덤하게 사용자 한명 선택해서 방장(그림을 그려야하는 사람)으로 정한 후, 그 사람 클라이언트로 단어 아무거나 하나 보내기
+	while (p < p_limit) {
+		if (i == who) {
+			//형식 : void SendFrameDataToClient(서버소켓, 클라이언트 소켓, 데이터 구분번호, 전송 데이터 주소, 전송 데이터 크기)
+			SendFrameDataToClient(p_app_data->p_server, p->h_socket, 12, NULL, 0);
+			/*랜덤하게 뽑힌 사람이라면, 그 유저에게 데이터를 전달하라고, 함수호출
+			그냥보내주고 클라이언트에서 가공해서 listbox에서 띄우면됨*/
+		}
+		i++; //아니라면 ++
+	}
+	//나왔다는건 데이터 전달했다는 것이기에 전체알림창에 관련 알림 띄워주기
+	ListBox_InsertString(FindControl(1000), -1, "[알림] : 랜덤하게 선택된 유저에게 단어를 보냈습니다! 개인 채팅창을 확인해주세요.");
+	ListBox_InsertString(FindControl(1000), -1, "[알림] : 해당 유저가 그리는 그림을 보고, 정답이라 생각되는 단어를 적어주세요. ex) 호랑이");
+}
+
+
+// 2. 클라이언트에서 온 데이터 처리 및 데이터 보낼 때 사용하는 함수 
 int OnClientMessage(CurrentServerNetworkData *ap_data, void *ap_server, int a_server_index) {
 	/*CurrentServer... 자체에 UserData가 포함이 되어 있는 구조라서 따로 호출 안해도 된다.*/
+	//<강의 중요 코멘트>
+	//전달된 사용자 정보를 자신이 선언한 구조체로 형 변환해서 사용하면 된다
+	//서버 구현 시 Sizeof(UserData)크기로 만들어 달라 하였기에 사용자 정보 : UserData 형식으로 관리되고 있음
 
-	UserData *p_user_data = (UserData *)ap_data->mp_net_user; //현재 유저의 데이터
+	UserData *p_user_data = (UserData *)ap_data->mp_net_user; //현재 유저의 데이터 받아와서
 	char temp_str[128];
 
 	// 프로그램에서 각 기능을 구분하기 위해서 id를 부여해줌 
@@ -78,6 +141,19 @@ int OnClientMessage(CurrentServerNetworkData *ap_data, void *ap_server, int a_se
 		그리고 이제 데이터가 다른 유저에게 전송될 수 있도록 하는 것이 BroadCast
 		즉, 네트워크 상으로 자신의 데이터가 들어왔을 때 저장 후 재전송해 나를 포함한 모두가 채팅을 볼 수 있게 하는것*/
 		BroadcastFrameData(ap_server, 1, temp_str, strlen(temp_str) + 1);
+
+	}
+	else if (ap_data -> m_net_msg_id == 2 || ap_data -> m_net_msg_id == 3) {
+		//선 그리기 : 2번, 지우기 : 3번, 그냥 그대로 클라이언트로 보내면 됨
+		BroadcastFrameData(ap_server, ap_data->m_net_msg_id, ap_data->mp_net_body_data, ap_data->m_net_body_size);
+	}
+	else if (ap_data->m_net_msg_id == 11) { //게임 시작 id : 11, 인원 수 확인먼저, 2명이상이면 1, 아니면 -1리턴됨
+		int check = CalcPlayerCount(); // 서버 접속 인원수 확인하는 함수 호출
+
+		if (check == 1) { //만약 인원수가 2명이상이라면
+			ListBox_InsertString(FindControl(ID_LB_CHAT), -1, "[알림] : 그림퀴즈 게임 시작 버튼이 눌렸습니다!");
+			PlayDrawQuizGame(); //그림퀴즈 시작 함수 호출
+		}
 	}
 	return 1;
 }
@@ -95,7 +171,6 @@ void OnCloseUser(UserData* ap_user_data, void* ap_server, int a_error_flag, int 
 	}
 	ListBox_InsertString(FindControl(ID_LB_CHAT), -1, temp_str);
 }
-
 
 // 이미 다른 사용자가 사용하고 있는 아이디인지 확인하는 기능
 RUD* FindUserID(AppData* ap_data, const char* ap_user_id) {
@@ -256,13 +331,15 @@ void LoadUserData(AppData* ap_data, const char* ap_file_name) {
 	}
 }
 
+
+
 void CreateUI(AppData *ap_data) {
 	SelectFontObject("굴림", 12);
-	TextOut(15, 10, RGB(200, 255, 200), "사용자 채팅글 목록"); //제목
+	TextOut(15, 10, RGB(200, 255, 200), "전체 사용자 채팅글"); //제목
 	ap_data->p_chat_list = CreateListBox(10, 30, 600, 200, ID_LB_CHAT);
 
 
-	TextOut(15, 243, RGB(200, 255, 200), "등록된 유저");
+	TextOut(15, 243, RGB(200, 255, 200), "채팅방 유저 목록");
 	ap_data->p_user_list = CreateListBox(10, 263, 600, 160,
 		ID_LB_USER, DrawUserDataItem); //사용자가 리스트 박스를 재정의 할 수 있게하기 위해서 선언
 
