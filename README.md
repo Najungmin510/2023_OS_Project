@@ -1,4 +1,4 @@
-# 2023_OS_Project [나의 미적감각.]
+# 2023_OS_Project [맞춰봐]
 3학년 1학기 OS 교과목의 기말 프로젝트 관련 소스코드를 업로드합니다.<br>
 조건대로라면, VirtualBox -> Ubuntu 환경에서 visual studio code를 이용하여야 합니다.<br>
 ![backslash](https://github.com/Najungmin510/2023_OS_Project/assets/83949732/4f877441-2836-4abc-b0c1-16d3013ffd15)<br>
@@ -12,10 +12,14 @@
 그러나 개인적으로 console창에서 이를 확인하는 것은 불편하다는 느낌을 받았습니다<br>
 그래서 **C언어로 GUI환경을 구축할 수 있는 방법**에 대해 알아보기 시작했고, EasyWin32라는 라이브러리를 알게되어<br>
 이를 사용해 이번 프로젝트를 제작하게 되었습니다.<br>
-**김상엽 선생님의 강의 및 공식 카페 게시글을 이용하여** 제작하였습니다.<br>
+**김상엽 선생님의 강의 및 공식 카페 게시글을 활용하여 제작**하였습니다.<br>
 
 ## 프로젝트 구성
 채팅창, 채팅 전체를 확인할 수 있는 채팅글 창, 그림창으로 구성되어 있습니다.<br>
+그림게임 시작 버튼 클릭시 그림 퀴즈 프로그램 사용이 가능합니다. <br>
+![image](https://github.com/Najungmin510/2023_OS_Project/assets/83949732/ecd31165-5efe-4cb2-807f-6e7fbcdf84b5)
+
+## 프로그램 시뮬레이션 GIF
 
 ## EasyWin32 Library
 ![EasyWin32](https://github.com/Najungmin510/2023_OS_Project/assets/83949732/564b6502-8c9c-4063-bf21-0a28c717a76c)<br>
