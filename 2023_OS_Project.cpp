@@ -20,6 +20,7 @@
 GUI를 구현하기 위해 Easywin32 라이브러리를 사용
 그러나, 이 라이브러리에서 socket을 이용하려면 개발자가 따로 선언 한
 함수 형식에 따라야 하기 때문에, 그에 맞춰서 구현함
+★ sprintf_s는 문자열을 복사하는 역할을함!!!! <<<<
 */
 
 struct UserData;
@@ -56,7 +57,6 @@ const char* gp_user_level_str[5] = { "초보자", "숙련자", "고수", "달인
 /* 1. 새로운 사용자 접속 시 서버에서 처리할 것들 */
 /* a_server_index의 경우 다중 서버 구현 시, 어떤 서버로 데이터를 보낼것인지를 지정할 때 사용 */
 void OnNewUser(UserData* ap_user_data, void *ap_server, int a_server_index) { //EasyWin32에서 socket사용할 때 필요한 함수형식
-	
 	char temp_str[64];
 	sprintf_s(temp_str, 64, "환영합니다! %s 님이 접속하셨습니다.", ap_user_data->ip_Address);
 	ListBox_InsertString(FindControl(ID_LB_CHAT), -1, temp_str);
@@ -93,7 +93,8 @@ int CalcPlayerCount() {
 	}
 }
 
-void PlayDrawQuizGame() { //그림퀴즈,  //사용자 & 단어 랜덤으로 지명해서 클라이언트로 보내기
+//그림퀴즈,  
+void PlayDrawQuizGame() { //사용자 & 단어 랜덤으로 지명해서 클라이언트로 보내기
 
 	AppData* p_app_data = (AppData*)GetAppData();
 	int Random_Myturn = p_app_data->user_Count; //접속인원 수 구하기
@@ -104,20 +105,32 @@ void PlayDrawQuizGame() { //그림퀴즈,  //사용자 & 단어 랜덤으로 지
 	UserData* p = (UserData*)GetUsersData(p_app_data->p_server), * p_limit = p + MAX_JOIN_USER;
 
 	//랜덤하게 사용자 한명 선택해서 방장(그림을 그려야하는 사람)으로 정한 후, 그 사람 클라이언트로 단어 아무거나 하나 보내기
-	while (p < p_limit) {
-		if (i == who) {
-			//형식 : void SendFrameDataToClient(서버소켓, 클라이언트 소켓, 데이터 구분번호, 전송 데이터 주소, 전송 데이터 크기)
-			SendFrameDataToClient(p_app_data->p_server, p->h_socket, 12, NULL, 0);
-			/*랜덤하게 뽑힌 사람이라면, 그 유저에게 데이터를 전달하라고, 함수호출
-			그냥보내주고 클라이언트에서 가공해서 listbox에서 띄우면됨*/
-		}
-		i++; //아니라면 ++
+	while (i != who) { //둘이 같을때까지
+		p -> h_socket; //타겟 돌리기
+		i++; // 랜덤으로 뽑힌 수까지 가기위해서 증가시킴
 	}
-	//나왔다는건 데이터 전달했다는 것이기에 전체알림창에 관련 알림 띄워주기
-	ListBox_InsertString(FindControl(1000), -1, "[알림] : 랜덤하게 선택된 유저에게 단어를 보냈습니다! 개인 채팅창을 확인해주세요.");
-	ListBox_InsertString(FindControl(1000), -1, "[알림] : 해당 유저가 그리는 그림을 보고, 정답이라 생각되는 단어를 적어주세요. ex) 호랑이");
+	//탈출했다는 건 i == who 이므로
+	if (i == who) {
+		ListBox_InsertString(FindControl(1000), -1, "[알림] : 랜덤하게 선택된 유저에게 단어를 보냈습니다! 개인 채팅창을 확인해주세요.");
+		ListBox_InsertString(FindControl(1000), -1, "[알림] : 해당 유저가 그리는 그림을 보고, 정답이라 생각되는 단어를 적어주세요. ex) 호랑이");
+
+		//형식 : void SendFrameDataToClient(서버소켓, 클라이언트 소켓, 데이터 구분번호, 전송 데이터 주소, 전송 데이터 크기)
+		SendFrameDataToClient(p_app_data->p_server, p->h_socket, 12, NULL, 0);
+		/*랜덤하게 뽑힌 사람이라면, 그 유저에게 데이터를 전달하라고, 함수호출
+		그냥보내주고 클라이언트에서 가공해서 listbox에서 띄우면됨*/
+	}
 }
 
+//정답인 단어 가지고 와서 맞춘 유저가 있는지 확인하는 기능, (이 방법 아닌것같아서 보류)
+//void CheckAnswer(char *answerWord) { //단어 가져오고
+	//AppData* p_data = (AppData*)GetAppData();
+	//UserData* ap_user_data = (UserData*)ap_data->mp_net_body_data;
+	//ListBox_InsertString(FindControl(ID_LB_CHAT), -1, temp_str); //디버깅 용도로 만들었던 것, 값 잘 나오는거 확인
+	//ListBox_InsertString(FindControl(ID_LB_CHAT), -1, "정답자가 나왔습니다!");
+	//PlayDrawQuizGame();//정답자가 있으면 재추첨해서 게임 진행
+//}
+
+const char* saveWord; // 정답확인용 변수
 
 // 2. 클라이언트에서 온 데이터 처리 및 데이터 보낼 때 사용하는 함수 
 int OnClientMessage(CurrentServerNetworkData *ap_data, void *ap_server, int a_server_index) {
@@ -127,6 +140,7 @@ int OnClientMessage(CurrentServerNetworkData *ap_data, void *ap_server, int a_se
 	//서버 구현 시 Sizeof(UserData)크기로 만들어 달라 하였기에 사용자 정보 : UserData 형식으로 관리되고 있음
 
 	UserData *p_user_data = (UserData *)ap_data->mp_net_user; //현재 유저의 데이터 받아와서
+
 	char temp_str[128];
 
 	// 프로그램에서 각 기능을 구분하기 위해서 id를 부여해줌 
@@ -142,6 +156,15 @@ int OnClientMessage(CurrentServerNetworkData *ap_data, void *ap_server, int a_se
 		즉, 네트워크 상으로 자신의 데이터가 들어왔을 때 저장 후 재전송해 나를 포함한 모두가 채팅을 볼 수 있게 하는것*/
 		BroadcastFrameData(ap_server, 1, temp_str, strlen(temp_str) + 1);
 
+		if (strcmp(saveWord, temp_str)) { //사용자가 말한 답과, 클라이언트상에서 지정해준 답이 같다면 정답처리
+			ListBox_InsertString(FindControl(ID_LB_CHAT), -1, "------정답자------");
+			ListBox_InsertString(FindControl(ID_LB_CHAT), -1, p_user_data->ip_Address);
+			ListBox_InsertString(FindControl(ID_LB_CHAT), -1, saveWord);
+			ListBox_InsertString(FindControl(ID_LB_CHAT), -1, "------------------");
+
+			PlayDrawQuizGame(); //그리고 게임 계속 진행
+		}
+
 	}
 	else if (ap_data -> m_net_msg_id == 2 || ap_data -> m_net_msg_id == 3) {
 		//선 그리기 : 2번, 지우기 : 3번, 그냥 그대로 클라이언트로 보내면 됨
@@ -154,6 +177,12 @@ int OnClientMessage(CurrentServerNetworkData *ap_data, void *ap_server, int a_se
 			ListBox_InsertString(FindControl(ID_LB_CHAT), -1, "[알림] : 그림퀴즈 게임 시작 버튼이 눌렸습니다!");
 			PlayDrawQuizGame(); //그림퀴즈 시작 함수 호출
 		}
+	}
+	else if (ap_data->m_net_msg_id == 100) { //정답확인 id : 100, 클라이언트에서 선택한 정답을 가지고 와서, 사용자들이 입력한 것과 같다면
+		//게임 함수 재호출하기.
+		sprintf_s(temp_str, 128, "%s", ap_data->mp_net_body_data); //값 복사해 가져와서
+		//ListBox_InsertString(FindControl(ID_LB_CHAT), -1, temp_str); //디버깅 용도로 만들었던 것, 값 잘 나오는거 확인
+		saveWord = temp_str; // 정답 값 저장해주고
 	}
 	return 1;
 }
